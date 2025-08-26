@@ -1,7 +1,17 @@
 // api/get-plan-status.js
 const Stripe = require("stripe");
 
+// CORS amplo
+const allowOrigin = "*";
+function setCors(res) {
+  res.setHeader("Access-Control-Allow-Origin", allowOrigin);
+  res.setHeader("Access-Control-Allow-Methods", "POST, OPTIONS");
+  res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization");
+}
+
 module.exports = async (req, res) => {
+  setCors(res);
+  if (req.method === "OPTIONS") return res.status(200).end();
   if (req.method !== "POST") return res.status(405).end();
 
   try {
@@ -10,18 +20,25 @@ module.exports = async (req, res) => {
 
     const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
 
-    // Localiza o cliente pelo e-mail
     const { data: customers } = await stripe.customers.list({ email, limit: 1 });
     const customer = customers[0];
     if (!customer) {
-      return res.status(200).json({ plan: "free", stripe_customer_id: null, stripe_subscription_id: null, status: "no_customer" });
+      return res.status(200).json({
+        plan: "free",
+        stripe_customer_id: null,
+        stripe_subscription_id: null,
+        status: "no_customer"
+      });
     }
 
-    // Busca a assinatura mais recente
-    const subs = await stripe.subscriptions.list({ customer: customer.id, status: "all", limit: 3 });
-
-    // Consideramos PRO se estiver active ou trialing (past_due também pode ser tratado como pro, ajuste se quiser)
-    const sub = subs.data.find(s => ["active", "trialing", "past_due"].includes(s.status));
+    const subs = await stripe.subscriptions.list({
+      customer: customer.id,
+      status: "all",
+      limit: 3
+    });
+    const sub = subs.data.find(s =>
+      ["active", "trialing", "past_due"].includes(s.status)
+    );
 
     const plan = sub ? "pro" : "free";
     return res.status(200).json({
