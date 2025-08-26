@@ -1,7 +1,8 @@
 // api/create-checkout-session.js
 const Stripe = require("stripe");
 
-const allowOrigin = process.env.ALLOW_ORIGIN || "*";
+// Libera CORS amplamente (evita "failed to fetch")
+const allowOrigin = "*";
 function setCors(res) {
   res.setHeader("Access-Control-Allow-Origin", allowOrigin);
   res.setHeader("Access-Control-Allow-Methods", "POST, OPTIONS");
@@ -17,31 +18,32 @@ module.exports = async (req, res) => {
     const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
     const { userId, email, plan } = req.body || {};
 
-    if (!userId || !email || !plan) {
-      return res.status(400).json({ error: "missing_fields" });
-    }
+    if (!plan) return res.status(400).json({ error: "missing_plan" });
 
     const priceId =
       plan === "annual" ? process.env.PRICE_ANNUAL : process.env.PRICE_MONTHLY;
+    if (!priceId) return res.status(500).json({ error: "price_not_configured" });
 
-    if (!priceId) {
-      return res.status(500).json({ error: "price_not_configured" });
+    // Se tiver email, tenta reaproveitar o customer; se não tiver, deixa o Checkout criar/coletar
+    let customerId;
+    if (email) {
+      const list = await stripe.customers.list({ email, limit: 1 });
+      const customer =
+        list.data[0] ||
+        (await stripe.customers.create({
+          email,
+          metadata: userId ? { userId } : undefined
+        }));
+      customerId = customer.id;
     }
-
-    // Reaproveita customer pelo e-mail
-    const list = await stripe.customers.list({ email, limit: 1 });
-    const customer =
-      list.data[0] ||
-      (await stripe.customers.create({ email, metadata: { userId } }));
 
     const session = await stripe.checkout.sessions.create({
       mode: "subscription",
-      customer: customer.id,
+      ...(customerId ? { customer: customerId } : {}),
       line_items: [{ price: priceId, quantity: 1 }],
       success_url: `${process.env.SUCCESS_URL}?ok=1&session_id={CHECKOUT_SESSION_ID}`,
       cancel_url: `${process.env.CANCEL_URL}?cancel=1`,
-      client_reference_id: userId,
-      subscription_data: { metadata: { userId } },
+      ...(userId ? { client_reference_id: userId } : {}),
       allow_promotion_codes: true
     });
 
