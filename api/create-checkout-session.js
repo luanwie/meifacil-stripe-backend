@@ -1,7 +1,7 @@
 // api/create-checkout-session.js
 const Stripe = require("stripe");
 
-// Libera CORS amplamente (evita "failed to fetch")
+// CORS amplo para evitar "failed to fetch"
 const allowOrigin = "*";
 function setCors(res) {
   res.setHeader("Access-Control-Allow-Origin", allowOrigin);
@@ -16,15 +16,20 @@ module.exports = async (req, res) => {
 
   try {
     const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
-    const { userId, email, plan } = req.body || {};
 
-    if (!plan) return res.status(400).json({ error: "missing_plan" });
+    // Tenta ler do body; se não vier, tenta querystring; se não vier, assume "monthly"
+    const urlObj = new URL(req.url, "http://localhost");
+    const qsPlan = urlObj.searchParams.get("plan");
+    const body = req.body || {};
+    const userId = body.userId || null;
+    const email = body.email || null;
+    const plan = (body.plan || qsPlan || "monthly").toLowerCase();
 
     const priceId =
       plan === "annual" ? process.env.PRICE_ANNUAL : process.env.PRICE_MONTHLY;
     if (!priceId) return res.status(500).json({ error: "price_not_configured" });
 
-    // Se tiver email, tenta reaproveitar o customer; se não tiver, deixa o Checkout criar/coletar
+    // Se tiver e-mail, reaproveita customer; senão, Checkout cria
     let customerId;
     if (email) {
       const list = await stripe.customers.list({ email, limit: 1 });
